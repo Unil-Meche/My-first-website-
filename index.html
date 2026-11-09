@@ -7449,3 +7449,539 @@ body {
 })();
 </script>
 new Event("rh-module-destroy")
+
+<style>
+/* MODULE 1: PHYSICS ROOM VISIBILITY FIX */
+
+.rh-sandbox-fix {
+  width: 100%;
+  padding: 18px 12px 24px;
+  color: #f4f4f5;
+  font-family: inherit;
+}
+
+.rh-sandbox-fix * {
+  box-sizing: border-box;
+}
+
+.rh-sandbox-fix .sf-heading {
+  text-align: center;
+  margin-bottom: 18px;
+}
+
+.rh-sandbox-fix .sf-heading h2 {
+  margin: 0 0 7px;
+  font-size: 25px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  background: linear-gradient(90deg, #c084fc, #06b6d4);
+  color: transparent;
+  background-clip: text;
+  -webkit-background-clip: text;
+}
+
+.rh-sandbox-fix .sf-heading p {
+  color: #a1a1aa;
+  font-size: 12px;
+}
+
+.rh-sandbox-fix .sf-room {
+  position: relative;
+  width: 100%;
+  height: 360px;
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid rgba(168,85,247,.4);
+  background:
+    radial-gradient(ellipse at 50% 50%, rgba(88,28,135,.2), transparent 70%),
+    #080810;
+  box-shadow: inset 0 0 35px rgba(6,182,212,.08),
+                0 0 25px rgba(168,85,247,.08);
+  touch-action: manipulation;
+}
+
+.rh-sandbox-fix canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+
+.rh-sandbox-fix .sf-hint {
+  position: absolute;
+  bottom: 10px;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  color: rgba(255,255,255,.45);
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+
+.rh-sandbox-fix .sf-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 15px;
+}
+
+.rh-sandbox-fix .sf-control {
+  padding: 13px;
+  border: 1px solid #30303b;
+  border-radius: 12px;
+  background: #15151d;
+}
+
+.rh-sandbox-fix .sf-control label {
+  display: flex;
+  justify-content: space-between;
+  gap: 5px;
+  color: #d4d4d8;
+  font-size: 11px;
+  margin-bottom: 12px;
+}
+
+.rh-sandbox-fix .sf-control output {
+  color: #c084fc;
+  font-weight: 800;
+}
+
+.rh-sandbox-fix input[type="range"] {
+  width: 100%;
+  accent-color: #a855f7;
+  cursor: pointer;
+}
+
+.rh-sandbox-fix .sf-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.rh-sandbox-fix .sf-status {
+  color: #67e8f9;
+  font-size: 11px;
+}
+
+.rh-sandbox-fix .sf-reset {
+  border: 1px solid rgba(6,182,212,.4);
+  background: rgba(6,182,212,.1);
+  color: #67e8f9;
+  border-radius: 9px;
+  padding: 10px 15px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+@media(max-width:380px) {
+  .rh-sandbox-fix .sf-controls {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
+
+<script>
+(function () {
+  "use strict";
+
+  const RH = window.RabbitHole;
+  if (!RH || !Array.isArray(RH.modules)) return;
+
+  const module = RH.modules.find(function (m) {
+    return m.id === "what-if-sandbox";
+  });
+
+  if (!module) {
+    console.error("Physics Room: Original module registration not found.");
+    return;
+  }
+
+  // Replace only Module 1's renderer.
+  module.render = function () {
+    const root = document.createElement("section");
+    root.className = "rh-sandbox-fix";
+
+    root.innerHTML = `
+      <div class="sf-heading">
+        <h2>WHAT IF SANDBOX</h2>
+        <p>Experiment with your own tiny universe.</p>
+      </div>
+
+      <div class="sf-room">
+        <canvas aria-label="Interactive particle physics simulation"></canvas>
+        <div class="sf-hint">TAP OR CLICK INSIDE TO CREATE MORE PARTICLES</div>
+      </div>
+
+      <div class="sf-controls">
+        <div class="sf-control">
+          <label>
+            Gravity
+            <output data-value="gravity">50%</output>
+          </label>
+          <input type="range" data-slider="gravity"
+            min="0" max="100" value="50">
+        </div>
+
+        <div class="sf-control">
+          <label>
+            Elasticity
+            <output data-value="elasticity">85%</output>
+          </label>
+          <input type="range" data-slider="elasticity"
+            min="0" max="100" value="85">
+        </div>
+      </div>
+
+      <div class="sf-actions">
+        <span class="sf-status">65 particles in your universe</span>
+        <button class="sf-reset" type="button">↻ RESET UNIVERSE</button>
+      </div>
+    `;
+
+    const canvas = root.querySelector("canvas");
+    const ctx = canvas.getContext("2d");
+    const room = root.querySelector(".sf-room");
+    const status = root.querySelector(".sf-status");
+    const gravitySlider = root.querySelector('[data-slider="gravity"]');
+    const elasticitySlider = root.querySelector('[data-slider="elasticity"]');
+
+    let width = 0;
+    let height = 0;
+    let particles = [];
+    let gravity = 0.5;
+    let elasticity = 0.85;
+    let animationId = null;
+    let observer = null;
+    let destroyed = false;
+    let lastTime = 0;
+
+    const colors = [
+      "#a855f7",
+      "#06b6d4",
+      "#22d3ee",
+      "#c084fc",
+      "#818cf8",
+      "#f0abfc"
+    ];
+
+    function createParticle(x, y) {
+      const radius = 3 + Math.random() * 6;
+
+      return {
+        x: x,
+        y: y,
+        vx: (Math.random() - 0.5) * 3.5,
+        vy: (Math.random() - 0.5) * 3.5,
+        radius: radius,
+        mass: radius * radius,
+        hue: colors[Math.floor(Math.random() * colors.length)],
+        phase: Math.random() * Math.PI * 2
+      };
+    }
+
+    function populate() {
+      particles = [];
+
+      for (let i = 0; i < 65; i++) {
+        particles.push(
+          createParticle(
+            15 + Math.random() * Math.max(1, width - 30),
+            15 + Math.random() * Math.max(1, height - 30)
+          )
+        );
+      }
+
+      updateStatus();
+    }
+
+    function updateStatus() {
+      status.textContent =
+        particles.length + " particles in your universe";
+    }
+
+    function resizeCanvas() {
+      if (destroyed) return;
+
+      const rect = room.getBoundingClientRect();
+
+      width = Math.max(1, rect.width);
+      height = Math.max(1, rect.height);
+
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      if (particles.length === 0) {
+        populate();
+      } else {
+        particles.forEach(function (p) {
+          p.x = Math.max(p.radius, Math.min(width - p.radius, p.x));
+          p.y = Math.max(p.radius, Math.min(height - p.radius, p.y));
+        });
+      }
+
+      // Draw immediately, even before the first animation frame.
+      draw();
+    }
+
+    function updateParticle(p, dt) {
+      const step = Math.min(dt / 16.67, 2);
+
+      p.vy += gravity * 0.055 * step;
+
+      p.x += p.vx * step;
+      p.y += p.vy * step;
+
+      const bounce = elasticity;
+
+      if (p.x - p.radius < 0) {
+        p.x = p.radius;
+        p.vx = Math.abs(p.vx) * bounce;
+      }
+
+      if (p.x + p.radius > width) {
+        p.x = width - p.radius;
+        p.vx = -Math.abs(p.vx) * bounce;
+      }
+
+      if (p.y - p.radius < 0) {
+        p.y = p.radius;
+        p.vy = Math.abs(p.vy) * bounce;
+      }
+
+      if (p.y + p.radius > height) {
+        p.y = height - p.radius;
+        p.vy = -Math.abs(p.vy) * bounce;
+
+        if (Math.abs(p.vy) < 0.08) {
+          p.vy = 0;
+        }
+      }
+    }
+
+    function handleCollisions() {
+      for (let i = 0; i < particles.length; i++) {
+        for (let j = i + 1; j < particles.length; j++) {
+          const a = particles[i];
+          const b = particles[j];
+
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          const minDistance = a.radius + b.radius;
+
+          if (distance === 0 || distance >= minDistance) continue;
+
+          const nx = dx / distance;
+          const ny = dy / distance;
+          const overlap = minDistance - distance;
+
+          a.x -= nx * overlap * 0.5;
+          a.y -= ny * overlap * 0.5;
+          b.x += nx * overlap * 0.5;
+          b.y += ny * overlap * 0.5;
+
+          const relativeVelocity =
+            (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+
+          if (relativeVelocity > 0) continue;
+
+          const impulse =
+            -(1 + elasticity) * relativeVelocity /
+            (1 / a.mass + 1 / b.mass);
+
+          a.vx -= impulse * nx / a.mass;
+          a.vy -= impulse * ny / a.mass;
+          b.vx += impulse * nx / b.mass;
+          b.vy += impulse * ny / b.mass;
+        }
+      }
+    }
+
+    function drawParticle(p) {
+      const glow = ctx.createRadialGradient(
+        p.x, p.y, 0,
+        p.x, p.y, p.radius * 3
+      );
+
+      glow.addColorStop(0, p.hue);
+      glow.addColorStop(1, "transparent");
+
+      ctx.beginPath();
+      ctx.fillStyle = glow;
+      ctx.arc(p.x, p.y, p.radius * 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.fillStyle = p.hue;
+      ctx.shadowColor = p.hue;
+      ctx.shadowBlur = 13;
+      ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      ctx.beginPath();
+      ctx.fillStyle = "rgba(255,255,255,.65)";
+      ctx.arc(
+        p.x - p.radius * 0.3,
+        p.y - p.radius * 0.3,
+        Math.max(1, p.radius * 0.22),
+        0,
+        Math.PI * 2
+      );
+      ctx.fill();
+    }
+
+    function drawConnections() {
+      for (let i = 0; i < particles.length; i++) {
+        for (let j = i + 1; j < particles.length; j++) {
+          const a = particles[i];
+          const b = particles[j];
+
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+
+          if (distance < 85) {
+            ctx.beginPath();
+            ctx.strokeStyle =
+              "rgba(168,85,247," + (1 - distance / 85) * 0.25 + ")";
+            ctx.lineWidth = 0.7;
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.stroke();
+          }
+        }
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, width, height);
+
+      drawConnections();
+
+      particles.forEach(drawParticle);
+    }
+
+    function animate(time) {
+      if (destroyed) return;
+
+      const dt = lastTime ? Math.min(time - lastTime, 40) : 16.67;
+      lastTime = time;
+
+      particles.forEach(function (p) {
+        updateParticle(p, dt);
+      });
+
+      handleCollisions();
+      draw();
+
+      animationId = requestAnimationFrame(animate);
+    }
+
+    function addBurst(x, y, amount) {
+      for (let i = 0; i < amount; i++) {
+        particles.push(createParticle(x, y));
+      }
+
+      updateStatus();
+      draw();
+    }
+
+    canvas.addEventListener("pointerdown", function (event) {
+      if (destroyed) return;
+
+      const rect = canvas.getBoundingClientRect();
+
+      addBurst(
+        event.clientX - rect.left,
+        event.clientY - rect.top,
+        6
+      );
+    });
+
+    gravitySlider.addEventListener("input", function () {
+      gravity = Number(gravitySlider.value) / 100;
+      root.querySelector('[data-value="gravity"]').textContent =
+        gravitySlider.value + "%";
+    });
+
+    elasticitySlider.addEventListener("input", function () {
+      elasticity = Number(elasticitySlider.value) / 100;
+      root.querySelector('[data-value="elasticity"]').textContent =
+        elasticitySlider.value + "%";
+    });
+
+    root.querySelector(".sf-reset").addEventListener("click", function () {
+      if (destroyed) return;
+
+      gravitySlider.value = 50;
+      elasticitySlider.value = 85;
+      gravity = 0.5;
+      elasticity = 0.85;
+
+      root.querySelector('[data-value="gravity"]').textContent = "50%";
+      root.querySelector('[data-value="elasticity"]').textContent = "85%";
+
+      populate();
+      draw();
+    });
+
+    function cleanup() {
+      if (destroyed) return;
+
+      destroyed = true;
+
+      if (animationId !== null) {
+        cancelAnimationFrame(animationId);
+      }
+
+      if (observer) observer.disconnect();
+      window.removeEventListener("resize", resizeCanvas);
+    }
+
+    root.addEventListener("rh-module-destroy", cleanup);
+    root.addEventListener("rh-sandbox-destroy", cleanup);
+
+    // Wait for layout, size canvas, create objects, then animate.
+    requestAnimationFrame(function () {
+      if (destroyed) return;
+
+      resizeCanvas();
+
+      if (particles.length === 0) populate();
+
+      draw();
+      animationId = requestAnimationFrame(animate);
+    });
+
+    if ("ResizeObserver" in window) {
+      observer = new ResizeObserver(function () {
+        resizeCanvas();
+      });
+      observer.observe(room);
+    } else {
+      window.addEventListener("resize", resizeCanvas);
+    }
+
+    return root;
+  };
+
+  console.log("✅ Module 1 Physics Room renderer repaired.");
+
+  // If Module 1 is already on screen, refresh it immediately.
+  const activeModule = RH.modules[RH.current];
+
+  if (activeModule && activeModule.id === "what-if-sandbox") {
+    RH.loadModule("what-if-sandbox");
+  }
+
+})();
+</script>
